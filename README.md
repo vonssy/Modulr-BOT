@@ -22,7 +22,7 @@
 
 Modulr BOT is an automated tool designed to transfer modulr test token across multiple accounts. It provides seamless offers robust proxy support for enhanced security and reliability.
 
-**🧩 Modulr Extension:** [Chrome Web Store](https://chromewebstore.google.com/detail/modulr-wallet/cdmhpjjhnamicehbdojmlnnodfcgnehn)
+**🧩 Modulr Extension:** [Chrome Web Store](https://chromewebstore.google.com/detail/modulr-wallet/cdmhpjjhnamicehbdojmlnnodfcgnehn) 
 **🚰 Modulr Faucet:** [Modulr Explorer](https://testnet.explorer.modulr.cloud/faucet)
 
 ## ✨ Features
