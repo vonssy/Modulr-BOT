@@ -538,12 +538,12 @@ class Modulr:
                 f"{Fore.BLUE+Style.BRIGHT}   Signature:{Style.RESET_ALL}"
                 f"{Fore.WHITE+Style.BRIGHT} {signature} {Style.RESET_ALL}"
             )
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT} {block} {Style.RESET_ALL}"
-            )
                     
             if receipt_found:
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
+                    f"{Fore.WHITE+Style.BRIGHT} {block} {Style.RESET_ALL}"
+                )
 
                 if tx_success:
                     self.log(
@@ -555,6 +555,7 @@ class Modulr:
                         f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
                         f"{Fore.RED+Style.BRIGHT} Failed {Style.RESET_ALL}"
                     )
+                    
                 self.log(
                     f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
                     f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_id} {Style.RESET_ALL}"
