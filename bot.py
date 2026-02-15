@@ -26,8 +26,7 @@ class Modulr:
             "explorer": "https://testnet.explorer.modulr.cloud/tx/"
         }
 
-        self.RECIPIENT = str(os.getenv("RECIPIENT") or "BntNywzXyy3XSZe4wJyeDcRBXVhYZenGtdfTabKpL6p6")
-        self.SEND_COUNT = int(os.getenv("SEND_COUNT") or "1")
+        self.SEND_COUNT = int(os.getenv("SEND_COUNT") or "10")
         self.SEND_AMOUNT = int(os.getenv("SEND_AMOUNT") or "10")
         self.TX_FEE = 1
 
@@ -237,13 +236,13 @@ class Modulr:
         signed = crypto_sign(message, secret_key)
         return b64encode(signed[:64]).decode()
     
-    def build_sign_tx(self, secret_key: str, address: str, nonce: int):
+    def build_sign_tx(self, secret_key: str, address: str, recipient: str, nonce: int):
         try:
             payload = {
                 "v": 1,
                 "type": "transfer",
                 "from": address,
-                "to": self.RECIPIENT,
+                "to": recipient,
                 "amount": self.SEND_AMOUNT,
                 "fee": self.TX_FEE,
                 "nonce": nonce,
@@ -268,6 +267,12 @@ class Modulr:
                 f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
             )
             return None
+        
+    def generate_random_recipient(self):
+        signing_key = SigningKey.generate()
+        verify_key = signing_key.verify_key
+        public_key = verify_key.encode()
+        return b58encode(public_key).decode()
         
     def mask_account(self, account):
         try:
@@ -457,6 +462,8 @@ class Modulr:
             account = await self.account_data(address, proxy_url)
             if not account: continue
 
+            recipient = self.generate_random_recipient()
+
             balance = account["balance"]
             nonce = account["nonce"] + 1
 
@@ -474,7 +481,7 @@ class Modulr:
             )
             self.log(
                 f"{Fore.BLUE+Style.BRIGHT}   Recipient:{Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT} {self.RECIPIENT} {Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT} {recipient} {Style.RESET_ALL}"
             )
 
             if balance < self.SEND_AMOUNT + self.TX_FEE:
@@ -484,7 +491,7 @@ class Modulr:
                 )
                 return
             
-            txn = self.build_sign_tx(secret_key, address, nonce)
+            txn = self.build_sign_tx(secret_key, address, recipient, nonce)
             if not txn: continue
 
             tx_id = txn["txId"]
