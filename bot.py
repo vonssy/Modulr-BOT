@@ -13,16 +13,14 @@ from blake3 import blake3
 from dotenv import load_dotenv
 from datetime import datetime
 from colorama import *
-import asyncio, random, json, pytz, sys, re, os
+import asyncio, random, json, sys, re, os
 
 load_dotenv()
-
-wib = pytz.timezone('Asia/Jakarta')
 
 class Modulr:
     def __init__(self) -> None:
         self.API_URL = {
-            "node": "http://44.241.212.165:5332",
+            "node": "http://rpc1.testnet.modulr.cloud:5332",
             "explorer": "https://testnet.explorer.modulr.cloud/tx/"
         }
 
@@ -35,6 +33,7 @@ class Modulr:
 
         self.USE_PROXY = False
         self.ROTATE_PROXY = False
+
         self.HEADERS = {}
         self.proxies = []
         self.proxy_index = 0
@@ -56,10 +55,22 @@ class Modulr:
     def clear_terminal(self):
         os.system('cls' if os.name == 'nt' else 'clear')
 
-    def log(self, message):
+    def now_str(self):
+        return datetime.now().strftime('%x %X')
+
+    def log(self, address: str, tx_idx: int, total: int, message: str):
         print(
-            f"{Fore.CYAN + Style.BRIGHT}[ {datetime.now().astimezone(wib).strftime('%x %X %Z')} ]{Style.RESET_ALL}"
-            f"{Fore.WHITE + Style.BRIGHT} | {Style.RESET_ALL}{message}",
+            f"{Fore.CYAN+Style.BRIGHT}[ {self.now_str()} ]{Style.RESET_ALL} "
+            f"{Fore.GREEN+Style.BRIGHT}[ {self.mask_account(address)} ]{Style.RESET_ALL} "
+            f"{Fore.BLUE+Style.BRIGHT}[ {tx_idx}/{total} ]{Style.RESET_ALL} "
+            f"{message}",
+            flush=True
+        )
+
+    def log_info(self, message: str):
+        print(
+            f"{Fore.CYAN+Style.BRIGHT}[ {self.now_str()} ]{Style.RESET_ALL} "
+            f"{message}",
             flush=True
         )
 
@@ -85,29 +96,26 @@ class Modulr:
                 accounts = [line.strip() for line in file if line.strip()]
             return accounts
         except Exception as e:
-            print(f"{Fore.RED + Style.BRIGHT}Failed To Load Accounts: {e}{Style.RESET_ALL}")
+            print(f"{Fore.RED+Style.BRIGHT}Failed To Load Accounts: {e}{Style.RESET_ALL}")
             return None
         
     def load_proxies(self):
         filename = "proxy.txt"
         try:
             if not os.path.exists(filename):
-                self.log(f"{Fore.RED + Style.BRIGHT}File {filename} Not Found.{Style.RESET_ALL}")
+                self.log_info(f"{Fore.RED+Style.BRIGHT}File proxy.txt Not Found.{Style.RESET_ALL}")
                 return
             with open(filename, 'r') as f:
                 self.proxies = [line.strip() for line in f.read().splitlines() if line.strip()]
-            
             if not self.proxies:
-                self.log(f"{Fore.RED + Style.BRIGHT}No Proxies Found.{Style.RESET_ALL}")
+                self.log_info(f"{Fore.RED+Style.BRIGHT}No Proxies Found.{Style.RESET_ALL}")
                 return
-
-            self.log(
-                f"{Fore.GREEN + Style.BRIGHT}Proxies Total  : {Style.RESET_ALL}"
-                f"{Fore.WHITE + Style.BRIGHT}{len(self.proxies)}{Style.RESET_ALL}"
+            self.log_info(
+                f"{Fore.GREEN+Style.BRIGHT}Proxies Total  : {Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT}{len(self.proxies)}{Style.RESET_ALL}"
             )
-        
         except Exception as e:
-            self.log(f"{Fore.RED + Style.BRIGHT}Failed To Load Proxies: {e}{Style.RESET_ALL}")
+            self.log_info(f"{Fore.RED+Style.BRIGHT}Failed To Load Proxies: {e}{Style.RESET_ALL}")
             self.proxies = []
 
     def check_proxy_schemes(self, proxies):
@@ -136,11 +144,9 @@ class Modulr:
     def build_proxy_config(self, proxy=None):
         if not proxy:
             return None, None, None
-
         if proxy.startswith("socks"):
             connector = ProxyConnector.from_url(proxy)
             return connector, None, None
-
         elif proxy.startswith("http"):
             match = re.match(r"http://(.*?):(.*?)@(.*)", proxy)
             if match:
@@ -153,12 +159,9 @@ class Modulr:
     
     def display_proxy(self, proxy_url=None):
         if not proxy_url: return "No Proxy"
-
         proxy_url = re.sub(r"^(http|https|socks4|socks5)://", "", proxy_url)
-
         if "@" in proxy_url:
             proxy_url = proxy_url.split("@", 1)[1]
-
         return proxy_url
     
     def initialize_headers(self, address: str):
@@ -169,11 +172,10 @@ class Modulr:
                 "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
-                "Host": "44.241.212.165:5332",
+                "Host": "rpc1.testnet.modulr.cloud:5332",
                 "Pragma": "no-cache",
                 "User-Agent": random.choice(self.USER_AGENTS)
             }
-
         return self.HEADERS[address].copy()
     
     def derive_keys(self, seed_b64: str):
@@ -183,36 +185,23 @@ class Modulr:
             public_key = signing_key.verify_key.encode()
             secret_key = seed + public_key
             address = b58encode(public_key).decode()
-
-            return {
-                "address": address, 
-                "secretKey": secret_key
-            }
+            return {"address": address, "secretKey": secret_key}
         except Exception as e:
-            self.log(
-                f"{Fore.CYAN+Style.BRIGHT}Status  :{Style.RESET_ALL}"
-                f"{Fore.RED+Style.BRIGHT} Failed to Derive Keys From SeedB64 {Style.RESET_ALL}"
-                f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
-            )
+            self.log_info(f"{Fore.RED+Style.BRIGHT}Failed to Derive Keys: {e}{Style.RESET_ALL}")
             return None
     
     def canonicalizer(self, value) -> str:
         if value is None:
             return "null"
-
         if isinstance(value, (str, int, float, bool)):
             return json.dumps(value)
-
         if isinstance(value, list):
             return "[" + ",".join(self.canonicalizer(v) for v in value) + "]"
-
         if isinstance(value, dict):
             return "{" + ",".join(
                 f"{json.dumps(k)}:{self.canonicalizer(value[k])}"
                 for k in sorted(value.keys())
             ) + "}"
-
         return json.dumps(value)
 
     def build_preimage(self, payload: dict) -> str:
@@ -248,24 +237,12 @@ class Modulr:
                 "nonce": nonce,
                 "payload": {}
             }
-
             tx_id = self.build_tx_id(payload)
             signature = self.build_signature(secret_key, tx_id)
-
             payload["sig"] = signature
-
-            return {
-                "txId": tx_id,
-                "signature": signature,
-                "payload": payload
-            }
+            return {"txId": tx_id, "signature": signature, "payload": payload}
         except Exception as e:
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                f"{Fore.RED+Style.BRIGHT} Build Sign Transaction Failed {Style.RESET_ALL}"
-                f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
-            )
+            self.log_info(f"{Fore.RED+Style.BRIGHT}Build Sign Transaction Failed: {e}{Style.RESET_ALL}")
             return None
         
     def generate_random_recipient(self):
@@ -276,61 +253,53 @@ class Modulr:
         
     def mask_account(self, account):
         try:
-            mask_account = account[:6] + '*' * 6 + account[-6:]
-            return mask_account
-        except Exception as e:
+            return account[:6] + '*' * 6 + account[-6:]
+        except Exception:
             return None
-        
-    async def print_timer(self, min_delay, max_delay):
-        for remaining in range(random.randint(min_delay, max_delay), 0, -1):
+
+    async def print_timer(self, min_delay: int, max_delay: int):
+        delay = random.randint(min_delay, max_delay)
+        for remaining in range(delay, 0, -1):
             print(
-                f"{Fore.CYAN + Style.BRIGHT}[ {datetime.now().astimezone(wib).strftime('%x %X %Z')} ]{Style.RESET_ALL}"
-                f"{Fore.WHITE + Style.BRIGHT} | {Style.RESET_ALL}"
-                f"{Fore.BLUE + Style.BRIGHT}Wait For{Style.RESET_ALL}"
-                f"{Fore.WHITE + Style.BRIGHT} {remaining} {Style.RESET_ALL}"
-                f"{Fore.BLUE + Style.BRIGHT}Seconds For Next Tx...{Style.RESET_ALL}",
+                f"{Fore.CYAN+Style.BRIGHT}[ {self.now_str()} ]{Style.RESET_ALL} "
+                f"{Fore.BLUE+Style.BRIGHT}Next tx in {remaining}s...{Style.RESET_ALL}",
                 end="\r",
                 flush=True
             )
             await asyncio.sleep(1)
-        
+
     def print_question(self):
         while True:
             try:
-                print(f"{Fore.WHITE + Style.BRIGHT}1. Run With Proxy{Style.RESET_ALL}")
-                print(f"{Fore.WHITE + Style.BRIGHT}2. Run Without Proxy{Style.RESET_ALL}")
-                proxy_choice = int(input(f"{Fore.BLUE + Style.BRIGHT}Choose [1/2] -> {Style.RESET_ALL}").strip())
-
+                print(f"{Fore.WHITE+Style.BRIGHT}1. Run With Proxy{Style.RESET_ALL}")
+                print(f"{Fore.WHITE+Style.BRIGHT}2. Run Without Proxy{Style.RESET_ALL}")
+                proxy_choice = int(input(f"{Fore.BLUE+Style.BRIGHT}Choose [1/2] -> {Style.RESET_ALL}").strip())
                 if proxy_choice in [1, 2]:
-                    proxy_type = (
-                        "With" if proxy_choice == 1 else 
-                        "Without"
-                    )
-                    print(f"{Fore.GREEN + Style.BRIGHT}Run {proxy_type} Proxy Selected.{Style.RESET_ALL}")
+                    proxy_type = "With" if proxy_choice == 1 else "Without"
+                    print(f"{Fore.GREEN+Style.BRIGHT}Run {proxy_type} Proxy Selected.{Style.RESET_ALL}")
                     self.USE_PROXY = True if proxy_choice == 1 else False
                     break
                 else:
-                    print(f"{Fore.RED + Style.BRIGHT}Please enter either 1 or 2.{Style.RESET_ALL}")
+                    print(f"{Fore.RED+Style.BRIGHT}Please enter either 1 or 2.{Style.RESET_ALL}")
             except ValueError:
-                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number (1 or 2).{Style.RESET_ALL}")
+                print(f"{Fore.RED+Style.BRIGHT}Invalid input. Enter a number (1 or 2).{Style.RESET_ALL}")
 
         if self.USE_PROXY:
             while True:
-                rotate_proxy = input(f"{Fore.BLUE + Style.BRIGHT}Rotate Invalid Proxy? [y/n] -> {Style.RESET_ALL}").strip()
+                rotate_proxy = input(f"{Fore.BLUE+Style.BRIGHT}Rotate Invalid Proxy? [y/n] -> {Style.RESET_ALL}").strip()
                 if rotate_proxy in ["y", "n"]:
                     self.ROTATE_PROXY = True if rotate_proxy == "y" else False
                     break
                 else:
-                    print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter 'y' or 'n'.{Style.RESET_ALL}")
+                    print(f"{Fore.RED+Style.BRIGHT}Invalid input. Enter 'y' or 'n'.{Style.RESET_ALL}")
 
     async def ensure_ok(self, response):
         if response.status >= 400:
             error_text = await response.text()
             raise Exception(f"HTTP {response.status}: {error_text}")
     
-    async def check_connection(self, proxy_url=None):
+    async def check_connection(self, address: str, proxy_url=None):
         url = "https://api.ipify.org?format=json"
-
         connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
         try:
             async with ClientSession(connector=connector, timeout=ClientTimeout(total=30)) as session:
@@ -338,100 +307,72 @@ class Modulr:
                     await self.ensure_ok(response)
                     return True
         except (Exception, ClientResponseError) as e:
-            self.log(
-                f"{Fore.CYAN+Style.BRIGHT}Status  :{Style.RESET_ALL}"
-                f"{Fore.RED+Style.BRIGHT} Connection Not 200 OK {Style.RESET_ALL}"
-                f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            self.log_info(
+                f"{Fore.GREEN+Style.BRIGHT}[{self.mask_account(address)}]{Style.RESET_ALL}"
+                f"{Fore.BLUE+Style.BRIGHT} Status: {Style.RESET_ALL} "
+                f"{Fore.RED+Style.BRIGHT}Connection failed: {e}{Style.RESET_ALL}"
             )
-        
         return None
     
     async def account_data(self, address: str, proxy_url=None, retries=5):
         url = f"{self.API_URL['node']}/account/{address}"
-        
         for attempt in range(retries):
             connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
                 headers = self.initialize_headers(address)
-
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
                     async with session.get(url=url, headers=headers, proxy=proxy, proxy_auth=proxy_auth) as response:
                         await self.ensure_ok(response)
                         return await response.json()
-            except (Exception, ClientResponseError) as e:
+            except (Exception, ClientResponseError):
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                    f"{Fore.RED+Style.BRIGHT} Failed to Fetch Account {Style.RESET_ALL}"
-                    f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                    f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
-                )
-
         return None
     
     async def send_transaction(self, address: str, payload: dict, proxy_url=None, retries=5):
         url = f"{self.API_URL['node']}/transaction"
-        
         for attempt in range(retries):
             connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
                 headers = self.initialize_headers(address)
                 headers["Content-Type"] = "application/json"
                 headers["Origin"] = "chrome-extension://cdmhpjjhnamicehbdojmlnnodfcgnehn"
-
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
                     async with session.post(url=url, headers=headers, json=payload, proxy=proxy, proxy_auth=proxy_auth) as response:
                         await self.ensure_ok(response)
                         return await response.json()
-            except (Exception, ClientResponseError) as e:
+            except (Exception, ClientResponseError):
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                    f"{Fore.RED+Style.BRIGHT} Failed to Send Transaction {Style.RESET_ALL}"
-                    f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                    f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
-                )
-
         return None
     
     async def get_transaction(self, address: str, tx_id: str, proxy_url=None, retries=5):
         url = f"{self.API_URL['node']}/transaction/{tx_id}"
-        
         for attempt in range(retries):
             connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
                 headers = self.initialize_headers(address)
-
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
                     async with session.get(url=url, headers=headers, proxy=proxy, proxy_auth=proxy_auth) as response:
                         await self.ensure_ok(response)
                         return await response.json()
-            except (Exception, ClientResponseError) as e:
+            except (Exception, ClientResponseError):
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
-                    f"{Fore.RED+Style.BRIGHT} Receipt Not Found {Style.RESET_ALL}"
-                    f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                    f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
-                )
-
         return None
-    
+
     async def process_check_connection(self, address: str, proxy_url=None):
         while True:
             if self.USE_PROXY:
                 proxy_url = self.get_next_proxy_for_account(address)
 
-            self.log(
-                f"{Fore.CYAN+Style.BRIGHT}Proxy   :{Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT} {self.display_proxy(proxy_url)} {Style.RESET_ALL}"
+            self.log_info(
+                f"{Fore.GREEN+Style.BRIGHT}[ {self.mask_account(address)} ]{Style.RESET_ALL}"
+                f"{Fore.BLUE+Style.BRIGHT} Proxy : {Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT}{self.display_proxy(proxy_url)}{Style.RESET_ALL}"
             )
 
             is_valid = await self.check_connection(proxy_url)
@@ -443,132 +384,105 @@ class Modulr:
                 continue
 
             return False
-        
-    async def process_accounts(self, secret_key: bytes, address: str, proxy_url=None):
-        is_valid = await self.process_check_connection(address, proxy_url)
-        if not is_valid: return False
 
-        if self.USE_PROXY:
-            proxy_url = self.get_next_proxy_for_account(address)
-
-        self.log(f"{Fore.CYAN+Style.BRIGHT}Transfer:{Style.RESET_ALL}")
-
-        for idx in range(self.SEND_COUNT):
-            self.log(
-                f"{Fore.GREEN+Style.BRIGHT} ● {Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT}{idx+1} - {self.SEND_COUNT}{Style.RESET_ALL}                                   "
+    async def process_transaction(self, secret_key: bytes, address: str, tx_idx: int, total: int, proxy_url=None):
+        account = await self.account_data(address, proxy_url)
+        if not account:
+            self.log(address, tx_idx, total,
+                f"{Fore.RED+Style.BRIGHT}Failed to fetch account data{Style.RESET_ALL}"
             )
+            return True
 
-            account = await self.account_data(address, proxy_url)
-            if not account: continue
+        recipient = self.generate_random_recipient()
+        balance   = account["balance"]
+        nonce     = account["nonce"] + 1
 
-            recipient = self.generate_random_recipient()
+        self.log(address, tx_idx, total,
+            f"{Fore.WHITE+Style.BRIGHT}Balance  : {balance}  |  "
+            f"Amount : {self.SEND_AMOUNT}  |  Fee : {self.TX_FEE}{Style.RESET_ALL}"
+        )
+        self.log(address, tx_idx, total,
+            f"{Fore.WHITE+Style.BRIGHT}Recipient: {recipient}{Style.RESET_ALL}"
+        )
 
-            balance = account["balance"]
-            nonce = account["nonce"] + 1
-
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Amount   :{Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT} {self.SEND_AMOUNT} {Style.RESET_ALL}"
+        if balance < self.SEND_AMOUNT + self.TX_FEE:
+            self.log(address, tx_idx, total,
+                f"{Fore.YELLOW+Style.BRIGHT}Insufficient balance — account will be skipped{Style.RESET_ALL}"
             )
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Tx Fee   :{Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT} {self.TX_FEE} {Style.RESET_ALL}"
-            )
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT} {balance} {Style.RESET_ALL}"
-            )
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Recipient:{Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT} {recipient} {Style.RESET_ALL}"
-            )
+            return False
 
-            if balance < self.SEND_AMOUNT + self.TX_FEE:
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                    f"{Fore.YELLOW+Style.BRIGHT} Insufficient Token Balance {Style.RESET_ALL}"
+        txn = self.build_sign_tx(secret_key, address, recipient, nonce)
+        if not txn:
+            self.log(address, tx_idx, total,
+                f"{Fore.RED+Style.BRIGHT}Failed to build transaction{Style.RESET_ALL}"
+            )
+            return True
+
+        tx_id     = txn["txId"]
+        signature = txn["signature"]
+        payload   = txn["payload"]
+        explorer  = self.API_URL["explorer"]
+
+        self.log(address, tx_idx, total,
+            f"{Fore.WHITE+Style.BRIGHT}Tx ID    : {tx_id}{Style.RESET_ALL}"
+        )
+        self.log(address, tx_idx, total,
+            f"{Fore.WHITE+Style.BRIGHT}Signature: {signature}{Style.RESET_ALL}"
+        )
+
+        send_tx = await self.send_transaction(address, payload, proxy_url)
+        if not send_tx:
+            self.log(address, tx_idx, total,
+                f"{Fore.RED+Style.BRIGHT}Failed to send transaction{Style.RESET_ALL}"
+            )
+            return True
+
+        tx_msg        = send_tx.get("status")
+        receipt_found = False
+        tx_success    = False
+        block         = None
+
+        for attempt in range(5):
+            await asyncio.sleep(2)
+            receipt = await self.get_transaction(address, tx_id, proxy_url)
+            if not receipt: break
+
+            receipt_found = True
+            block         = receipt.get("receipt", {}).get("block")
+            tx_success    = receipt.get("receipt", {}).get("success")
+
+            if not tx_success:
+                self.log(address, tx_idx, total,
+                    f"{Fore.YELLOW+Style.BRIGHT}Not confirmed yet, retrying... ({attempt+1}/5){Style.RESET_ALL}"
                 )
-                return
-            
-            txn = self.build_sign_tx(secret_key, address, recipient, nonce)
-            if not txn: continue
+                send_tx = await self.send_transaction(address, payload, proxy_url)
+                if send_tx:
+                    tx_msg = send_tx.get("status")
+                continue
+            break
 
-            tx_id = txn["txId"]
-            signature = txn["signature"]
-            payload = txn["payload"]
-            explorer = self.API_URL["explorer"]
-
-            send_tx = await self.send_transaction(address, payload, proxy_url)
-            if not send_tx: continue
-
-            tx_msg = send_tx.get("status")
-
-            receipt_found = False
-            tx_success = False
-            
-            for attempt in range(5):
-                await asyncio.sleep(2)
-                
-                receipt = await self.get_transaction(address, tx_id, proxy_url)
-                if not receipt: break
-
-                receipt_found = True
-
-                block = receipt.get("receipt", {}).get("block")
-                tx_success = receipt.get("receipt", {}).get("success")
-
-                if not tx_success:
-                    self.log(
-                        f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
-                        f"{Fore.YELLOW+Style.BRIGHT} Transaction failed, retrying... (Attempt {attempt+1}/5) {Style.RESET_ALL}"
-                    )
-                    send_tx = await self.send_transaction(address, payload, proxy_url)
-                    if send_tx:
-                        tx_msg = send_tx.get("status")
-                    continue
-                
-                break
-
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Tx ID    :{Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT} {tx_id} {Style.RESET_ALL}"
+        if receipt_found:
+            self.log(address, tx_idx, total,
+                f"{Fore.WHITE+Style.BRIGHT}Block    : {block}{Style.RESET_ALL}"
             )
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Signature:{Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT} {signature} {Style.RESET_ALL}"
-            )
-                    
-            if receipt_found:
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
-                    f"{Fore.WHITE+Style.BRIGHT} {block} {Style.RESET_ALL}"
+            if tx_success:
+                self.log(address, tx_idx, total,
+                    f"{Fore.GREEN+Style.BRIGHT}Status   : {tx_msg}{Style.RESET_ALL}"
                 )
-
-                if tx_success:
-                    self.log(
-                        f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                        f"{Fore.GREEN+Style.BRIGHT} {tx_msg} {Style.RESET_ALL}"
-                    )
-                else:
-                    self.log(
-                        f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                        f"{Fore.RED+Style.BRIGHT} Failed {Style.RESET_ALL}"
-                    )
-                    
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
-                    f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_id} {Style.RESET_ALL}"
-                )
-
             else:
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                    f"{Fore.RED+Style.BRIGHT} Failed {Style.RESET_ALL}"
+                self.log(address, tx_idx, total,
+                    f"{Fore.RED+Style.BRIGHT}Status   : Failed{Style.RESET_ALL}"
                 )
+            self.log(address, tx_idx, total,
+                f"{Fore.WHITE+Style.BRIGHT}Explorer : {explorer}{tx_id}{Style.RESET_ALL}"
+            )
+        else:
+            self.log(address, tx_idx, total,
+                f"{Fore.RED+Style.BRIGHT}Status   : Failed (receipt not found){Style.RESET_ALL}"
+            )
 
-            await self.print_timer(self.MIN_DELAY, self.MAX_DELAY)
-        
+        return True
+
     async def main(self):
         try:
             accounts = self.load_accounts()
@@ -577,57 +491,72 @@ class Modulr:
                 return False
             
             self.print_question()
+            self.clear_terminal()
+            self.welcome()
+            self.log_info(
+                f"{Fore.GREEN+Style.BRIGHT}Accounts Total : {Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT}{len(accounts)}{Style.RESET_ALL}"
+            )
 
-            while True:
-                self.clear_terminal()
-                self.welcome()
-                self.log(
-                    f"{Fore.GREEN + Style.BRIGHT}Account's Total: {Style.RESET_ALL}"
-                    f"{Fore.WHITE + Style.BRIGHT}{len(accounts)}{Style.RESET_ALL}"
+            if self.USE_PROXY:
+                self.load_proxies()
+
+            self.log_info(f"{Fore.CYAN+Style.BRIGHT}{'─'*55}{Style.RESET_ALL}")
+
+            account_list = []
+            for seed_b64 in accounts:
+                keys = self.derive_keys(seed_b64)
+                if keys:
+                    account_list.append((keys["secretKey"], keys["address"]))
+
+            if not account_list:
+                self.log_info(f"{Fore.RED+Style.BRIGHT}No valid accounts.{Style.RESET_ALL}")
+                return False
+
+            valid_accounts = []
+            for secret_key, address in account_list:
+                ok = await self.process_check_connection(address)
+                if ok:
+                    valid_accounts.append((secret_key, address))
+
+            if not valid_accounts:
+                self.log_info(f"{Fore.RED+Style.BRIGHT}No accounts with valid connection.{Style.RESET_ALL}")
+                return False
+
+            total_accs = len(valid_accounts)
+            skip_flags = {address: False for _, address in valid_accounts}
+
+            for tx_idx in range(1, self.SEND_COUNT + 1):
+                self.log_info(
+                    f"{Fore.CYAN+Style.BRIGHT}{'─'*18} Round {tx_idx}/{self.SEND_COUNT} {'─'*18}{Style.RESET_ALL}"
                 )
-                
-                if self.USE_PROXY: self.load_proxies()
 
-                separator = "=" * 25
-                for idx, seed_b64 in enumerate(accounts, start=1):
-                    self.log(
-                        f"{Fore.CYAN + Style.BRIGHT}{separator}[{Style.RESET_ALL}"
-                        f"{Fore.WHITE + Style.BRIGHT} {idx} {Style.RESET_ALL}"
-                        f"{Fore.CYAN + Style.BRIGHT}-{Style.RESET_ALL}"
-                        f"{Fore.WHITE + Style.BRIGHT} {len(accounts)} {Style.RESET_ALL}"
-                        f"{Fore.CYAN + Style.BRIGHT}]{separator}{Style.RESET_ALL}"
+                for acc_idx, (secret_key, address) in enumerate(valid_accounts, start=1):
+                    self.log(address, tx_idx, self.SEND_COUNT,
+                        f"{Fore.MAGENTA+Style.BRIGHT}Account  :{Style.RESET_ALL}"
+                        f"{Fore.WHITE+Style.BRIGHT} {acc_idx}/{total_accs} {Style.RESET_ALL}"
                     )
 
-                    keys = self.derive_keys(seed_b64)
-                    if not keys: continue
+                    if skip_flags[address]:
+                        self.log(address, tx_idx, self.SEND_COUNT,
+                            f"{Fore.YELLOW+Style.BRIGHT}Skipped (insufficient balance){Style.RESET_ALL}"
+                        )
+                    else:
+                        proxy_url = self.get_next_proxy_for_account(address) if self.USE_PROXY else None
+                        can_continue = await self.process_transaction(
+                            secret_key, address, tx_idx, self.SEND_COUNT, proxy_url
+                        )
+                        if not can_continue:
+                            skip_flags[address] = True
 
-                    secret_key = keys["secretKey"]
-                    address = keys["address"]
+                    is_last = (acc_idx == total_accs) and (tx_idx == self.SEND_COUNT)
+                    if not is_last:
+                        await self.print_timer(self.MIN_DELAY, self.MAX_DELAY)
 
-                    self.log(
-                        f"{Fore.CYAN+Style.BRIGHT}Address :{Style.RESET_ALL}"
-                        f"{Fore.WHITE+Style.BRIGHT} {self.mask_account(address)} {Style.RESET_ALL}"
-                    )
-                    
-                    await self.process_accounts(secret_key, address)
-                    await asyncio.sleep(random.uniform(2.0, 3.0))
-
-                self.log(f"{Fore.CYAN + Style.BRIGHT}={Style.RESET_ALL}"*72)
-
-                delay = 24 * 60 * 60
-                while delay > 0:
-                    formatted_time = self.format_seconds(delay)
-                    print(
-                        f"{Fore.CYAN+Style.BRIGHT}[ Wait for{Style.RESET_ALL}"
-                        f"{Fore.WHITE+Style.BRIGHT} {formatted_time} {Style.RESET_ALL}"
-                        f"{Fore.CYAN+Style.BRIGHT}... ]{Style.RESET_ALL}"
-                        f"{Fore.WHITE+Style.BRIGHT} | {Style.RESET_ALL}"
-                        f"{Fore.BLUE+Style.BRIGHT}All Accounts Have Been Processed...{Style.RESET_ALL}",
-                        end="\r",
-                        flush=True
-                    )
-                    await asyncio.sleep(1)
-                    delay -= 1
+            self.log_info(f"{Fore.CYAN+Style.BRIGHT}{'─'*55}{Style.RESET_ALL}")
+            self.log_info(
+                f"{Fore.GREEN+Style.BRIGHT}All accounts processed.{Style.RESET_ALL}"
+            )
 
         except Exception as e:
             raise e
@@ -640,9 +569,8 @@ if __name__ == "__main__":
         asyncio.run(bot.main())
     except KeyboardInterrupt:
         print(
-            f"{Fore.CYAN + Style.BRIGHT}[ {datetime.now().astimezone(wib).strftime('%x %X %Z')} ]{Style.RESET_ALL}"
-            f"{Fore.WHITE + Style.BRIGHT} | {Style.RESET_ALL}"
-            f"{Fore.RED + Style.BRIGHT}[ EXIT ] Modulr - BOT{Style.RESET_ALL}                                       "                              
+            f"{Fore.CYAN+Style.BRIGHT}[{datetime.now().strftime('%x %X')}]{Style.RESET_ALL}"
+            f" {Fore.RED+Style.BRIGHT}[ EXIT ] Modulr - BOT{Style.RESET_ALL}                                       "
         )
     finally:
         sys.exit(0)
